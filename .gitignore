@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Environment variables (contains secrets)
+.env
+
+# SQLite database (local data)
+*.db
+*.db-shm
+*.db-wal
+
+# GCS service account key (sensitive)
+service-account.json
+*.json.key
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+
+# Temp files
+*.tmp
+*.temp
