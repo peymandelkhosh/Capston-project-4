@@ -3,7 +3,7 @@ const express  = require('express');
 const router   = express.Router();
 const multer   = require('multer');
 const { processMessage, transcribeAudio, INTENTS } = require('../agent');
-const { activities, tasks, schedules, journal, medals } = require('../db');
+const { activities, todos, schedules, journal, medals, milestones } = require('../db');
 const { syncToGCS } = require('../gcs');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -36,9 +36,10 @@ router.post('/confirm', async (req, res) => {
     let saved;
     switch (intent) {
       case INTENTS.LOG_ACTIVITY:  saved = activities.create(payload); break;
-      case INTENTS.CREATE_TASK:   saved = tasks.create(payload); break;
+      case INTENTS.CREATE_TODO:   saved = todos.create(payload); break;
       case INTENTS.ADD_SCHEDULE:  saved = schedules.create(payload); break;
       case INTENTS.LOG_JOURNAL:   saved = journal.create(payload); break;
+      case INTENTS.CREATE_MILESTONE: saved = milestones.create(payload); break;
       case INTENTS.LOG_MEDAL: {
         const all  = medals.getAll();
         const match = all.find(m => m.name.toLowerCase() === (payload.name || '').toLowerCase());

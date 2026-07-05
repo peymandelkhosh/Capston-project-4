@@ -22,10 +22,12 @@
     <nav id="sidebar-nav">
       <a class="nav-item active" data-section="dashboard"  id="nav-dashboard"  href="#dashboard">  <span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span></a>
       <a class="nav-item"        data-section="activities" id="nav-activities" href="#activities"> <span class="nav-icon">🏃</span><span class="nav-label">Activities</span></a>
-      <a class="nav-item"        data-section="tasks"      id="nav-tasks"      href="#tasks">      <span class="nav-icon">✅</span><span class="nav-label">Tasks</span></a>
+      <a class="nav-item"        data-section="todos"      id="nav-todos"      href="#todos">      <span class="nav-icon">✅</span><span class="nav-label">To-Do List</span></a>
       <a class="nav-item"        data-section="schedules"  id="nav-schedules"  href="#schedules">  <span class="nav-icon">📅</span><span class="nav-label">Schedules</span></a>
       <a class="nav-item"        data-section="journal"    id="nav-journal"    href="#journal">    <span class="nav-icon">📔</span><span class="nav-label">Journal</span></a>
       <a class="nav-item"        data-section="medals"     id="nav-medals"     href="#medals">     <span class="nav-icon">🏅</span><span class="nav-label">Medals</span></a>
+      <a class="nav-item"        data-section="milestones" id="nav-milestones" href="#milestones"> <span class="nav-icon">🎯</span><span class="nav-label">Milestones</span></a>
+      <a class="nav-item"        data-section="news"       id="nav-news"       href="#news">       <span class="nav-icon">📰</span><span class="nav-label">News</span></a>
     </nav>
     <div id="sidebar-footer">
       <div id="ai-status"><span class="status-dot" id="ai-dot"></span><span id="ai-status-text">AI Ready</span></div>
@@ -47,7 +49,6 @@
       </div>
       <div class="stats-grid">
         <div class="stat-card glass"><span class="stat-icon">🏃</span><div><div class="stat-value" id="stat-act-count">—</div><div class="stat-label">Activities (7d)</div></div></div>
-        <div class="stat-card glass"><span class="stat-icon">✅</span><div><div class="stat-value" id="stat-task-count">—</div><div class="stat-label">Pending Tasks</div></div></div>
         <div class="stat-card glass"><span class="stat-icon">⏱️</span><div><div class="stat-value" id="stat-act-mins">—</div><div class="stat-label">Minutes Logged</div></div></div>
         <div class="stat-card glass"><span class="stat-icon">💭</span><div><div class="stat-value" id="stat-mood-avg">—</div><div class="stat-label">Avg Mood (7d)</div></div></div>
       </div>
@@ -78,18 +79,11 @@
       <div class="section-header"><h1>Activities</h1><button class="btn-primary" id="btn-add-activity">+ Log Activity</button></div>
       <div class="card glass"><div id="activities-list" class="item-list"></div><div id="activities-empty" class="empty-state hidden"><span>🏃</span><p>No activities yet. Log your first one!</p></div></div>
     </section>
-
-    <!-- Tasks -->
-    <section id="section-tasks" class="section">
-      <div class="section-header"><h1>Tasks</h1><button class="btn-primary" id="btn-add-task">+ Add Task</button></div>
-      <div class="task-filters">
-        <button class="filter-btn active" data-filter="all">All</button>
-        <button class="filter-btn" data-filter="pending">Pending</button>
-        <button class="filter-btn" data-filter="done">Done</button>
-      </div>
-      <div class="card glass"><div id="tasks-list" class="item-list"></div><div id="tasks-empty" class="empty-state hidden"><span>✅</span><p>No tasks yet.</p></div></div>
+    <!-- To-Do List -->
+    <section id="section-todos" class="section">
+      <div class="section-header"><h1>To-Do List</h1><button class="btn-primary" id="btn-add-todo">+ Add Task</button></div>
+      <div class="card glass"><div id="todos-list" class="item-list"></div><div id="todos-empty" class="empty-state hidden"><span>✅</span><p>No pending tasks. You're all caught up!</p></div></div>
     </section>
-
     <!-- Schedules -->
     <section id="section-schedules" class="section">
       <div class="section-header"><h1>Schedules</h1><button class="btn-primary" id="btn-add-schedule">+ Add Event</button></div>
@@ -108,6 +102,26 @@
       <div class="section-header"><h1>Habit Medals</h1><button class="btn-primary" id="btn-add-medal">+ New Medal</button></div>
       <div id="medals-grid" class="medals-grid"></div>
       <div id="medals-empty" class="empty-state hidden"><span>🏅</span><p>No medals yet.</p></div>
+    </section>
+
+    <!-- Milestones -->
+    <section id="section-milestones" class="section">
+      <div class="section-header">
+        <div><h1>Long-Term Milestones</h1><p class="section-subtitle">Track your biggest goals — auto-calculated from your logged activities</p></div>
+        <button class="btn-primary" id="btn-add-milestone">+ New Milestone</button>
+      </div>
+      <div id="milestones-grid" class="milestones-grid"></div>
+      <div id="milestones-empty" class="empty-state hidden"><span>🎯</span><p>No milestones yet. Set your first long-term goal!</p></div>
+    </section>
+
+    <!-- News Briefings -->
+    <section id="section-news" class="section">
+      <div class="section-header">
+        <div><h1>Daily AI & Tech News</h1><p class="section-subtitle">Stay informed with curated highlights generated by your wellness concierge</p></div>
+        <button class="btn-primary" id="btn-regenerate-news">🔄 Regenerate Today's Briefing</button>
+      </div>
+      <div id="news-timeline" class="news-timeline"></div>
+      <div id="news-empty" class="empty-state hidden"><span>📰</span><p>No tech briefings generated yet.</p></div>
     </section>
   </main>
 </div>
@@ -155,6 +169,7 @@
       <div class="form-row">
         <div class="form-group"><label for="act-duration">Duration (min)</label><input type="number" id="act-duration" min="1" max="1440" placeholder="30" required /></div>
         <div class="form-group"><label for="act-date">Date</label><input type="date" id="act-date" required /></div>
+        <div class="form-group"><label for="act-time">Time (opt)</label><input type="time" id="act-time" /></div>
       </div>
       <div class="form-group"><label for="act-notes">Notes</label><textarea id="act-notes" rows="2" placeholder="Optional notes…"></textarea></div>
       <div class="form-actions"><button type="button" class="btn-ghost" data-close="activity">Cancel</button><button type="submit" class="btn-primary">Save Activity</button></div>
@@ -162,25 +177,7 @@
   </div>
 </div>
 
-<!-- Task Modal -->
-<div id="modal-task" class="modal hidden" role="dialog" aria-labelledby="modal-task-title">
-  <div class="modal-backdrop" data-close="task"></div>
-  <div class="modal-box glass">
-    <div class="modal-header"><h2 id="modal-task-title">Add Task</h2><button class="modal-close" data-close="task">✕</button></div>
-    <form id="form-task">
-      <input type="hidden" id="task-id" />
-      <div class="form-group"><label for="task-title">Title</label><input type="text" id="task-title" placeholder="What do you need to do?" required /></div>
-      <div class="form-row">
-        <div class="form-group"><label for="task-due">Due Date</label><input type="date" id="task-due" /></div>
-        <div class="form-group"><label for="task-priority">Priority</label>
-          <select id="task-priority"><option value="low">🟢 Low</option><option value="medium" selected>🟡 Medium</option><option value="high">🔴 High</option></select>
-        </div>
-      </div>
-      <div class="form-group"><label for="task-notes">Notes</label><textarea id="task-notes" rows="2" placeholder="Optional…"></textarea></div>
-      <div class="form-actions"><button type="button" class="btn-ghost" data-close="task">Cancel</button><button type="submit" class="btn-primary">Save Task</button></div>
-    </form>
-  </div>
-</div>
+
 
 <!-- Schedule Modal -->
 <div id="modal-schedule" class="modal hidden" role="dialog" aria-labelledby="modal-sched-title">
@@ -234,12 +231,77 @@
     <form id="form-medal">
       <div class="form-group"><label for="medal-name">Habit Name</label><input type="text" id="medal-name" placeholder="e.g. Reading, Journaling…" required /></div>
       <div class="form-group"><label for="medal-icon">Icon (emoji)</label><input type="text" id="medal-icon" placeholder="🏅" maxlength="2" value="🏅" /></div>
+      <div class="form-group">
+        <label for="medal-desc">Description / Criteria</label>
+        <textarea id="medal-desc" rows="2" placeholder="e.g. Whenever I study more than 10 words in a day…"></textarea>
+      </div>
       <div class="form-actions"><button type="button" class="btn-ghost" data-close="medal">Cancel</button><button type="submit" class="btn-primary">Create</button></div>
     </form>
   </div>
 </div>
 
 <div id="toast" class="hidden"></div>
+
+<!-- To-Do Modal -->
+<div id="modal-todo" class="modal hidden" role="dialog" aria-labelledby="modal-todo-title">
+  <div class="modal-backdrop" data-close="todo"></div>
+  <div class="modal-box glass">
+    <div class="modal-header"><h2 id="modal-todo-title">Add Task</h2><button class="modal-close" data-close="todo">✕</button></div>
+    <form id="form-todo">
+      <input type="hidden" id="todo-id" />
+      <div class="form-group"><label for="todo-title">Task Name</label><input type="text" id="todo-title" placeholder="e.g. Finish report…" required /></div>
+      <div class="form-group"><label for="todo-desc">Description</label><textarea id="todo-desc" rows="2" placeholder="Details about this task…"></textarea></div>
+      <div class="form-row">
+        <div class="form-group"><label for="todo-duration">How long does it take? (mins)</label><input type="number" id="todo-duration" min="0" placeholder="e.g. 30" /></div>
+        <div class="form-group"><label for="todo-deadline">Deadline</label><input type="datetime-local" id="todo-deadline" /></div>
+      </div>
+      <div class="form-group"><label for="todo-extra">Extra Notes</label><textarea id="todo-extra" rows="1" placeholder="e.g. Cannot do this after 6 PM"></textarea></div>
+      <div class="form-actions"><button type="button" class="btn-ghost" data-close="todo">Cancel</button><button type="submit" class="btn-primary">Save Task</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- Milestone Modal -->
+<div id="modal-milestone" class="modal hidden" role="dialog" aria-labelledby="modal-ms-title">
+  <div class="modal-backdrop" data-close="milestone"></div>
+  <div class="modal-box glass" style="max-width:500px">
+    <div class="modal-header"><h2 id="modal-ms-title">New Milestone</h2><button class="modal-close" data-close="milestone">✕</button></div>
+    <form id="form-milestone">
+      <div class="form-group"><label for="ms-title">Title</label><input type="text" id="ms-title" placeholder="e.g. 10,000 Hours of Studying" required /></div>
+      <div class="form-group"><label for="ms-desc">Description</label><textarea id="ms-desc" rows="2" placeholder="Describe this milestone goal…"></textarea></div>
+      <div class="form-row">
+        <div class="form-group"><label for="ms-category">Category</label>
+          <select id="ms-category" required>
+            <option value="">Select…</option>
+            <option value="Exercise">🏋️ Exercise</option>
+            <option value="Running">🏃 Running</option>
+            <option value="Studying">📚 Studying</option>
+            <option value="Reading">📖 Reading</option>
+            <option value="Meditation">🧘 Meditation</option>
+            <option value="Work">💼 Work</option>
+            <option value="Yoga">🤸 Yoga</option>
+            <option value="Cycling">🚴 Cycling</option>
+            <option value="Other">⚡ Other</option>
+          </select>
+        </div>
+        <div class="form-group"><label for="ms-metric">Target Metric</label>
+          <select id="ms-metric" required>
+            <option value="hours">⏱ Hours</option>
+            <option value="words">📝 Words</option>
+            <option value="lessons">📖 Lessons</option>
+            <option value="calories">🔥 Calories</option>
+            <option value="days">📅 Days</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label for="ms-target">Target Value</label><input type="number" id="ms-target" min="1" placeholder="e.g. 10000" required /></div>
+        <div class="form-group"><label for="ms-unit">Unit Label</label><input type="text" id="ms-unit" placeholder="e.g. hrs, words, kcal" /></div>
+      </div>
+      <div class="form-actions"><button type="button" class="btn-ghost" data-close="milestone">Cancel</button><button type="submit" class="btn-primary" id="ms-submit-btn">Create Milestone</button></div>
+    </form>
+  </div>
+</div>
 <script src="app.js"></script>
 </body>
 </html>

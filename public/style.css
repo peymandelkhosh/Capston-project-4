@@ -137,6 +137,9 @@ body::before{
 .cal-hr-lbl{font-size:10px;color:var(--text-3);padding:5px 8px 0 0;text-align:right;border-right:1px solid var(--glass-bdr)}
 .cal-hr-slot{min-height:38px;border-bottom:1px solid hsla(226,30%,30%,.2);padding:2px 4px}
 .cal-pill{background:linear-gradient(135deg,var(--accent),var(--accent-b));color:#fff;font-size:11px;font-weight:500;padding:2px 7px;border-radius:var(--r-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:inline-block}
+.cal-week-grid{display:grid;grid-template-columns:46px repeat(7,1fr);max-height:320px;overflow-y:auto;min-width:650px}
+.cal-week-hdr-spacer{border-bottom:1px solid var(--glass-bdr);border-right:1px solid var(--glass-bdr)}
+.week-today{color:var(--accent)!important;font-weight:700}
 
 /* ── Item Lists ───────────────────────────────────── */
 .item-list{display:flex;flex-direction:column;gap:8px}
@@ -185,6 +188,66 @@ body::before{
 .medal-logged .medal-log-btn{background:hsla(152,70%,50%,.13);border-color:var(--green);color:var(--green)}
 .medal-del-btn{position:absolute;top:8px;right:8px;background:none;border:none;color:var(--text-3);font-size:11px;cursor:pointer;opacity:.5;transition:opacity var(--t-fast)}
 .medal-del-btn:hover{opacity:1;color:var(--danger)}
+
+.medal-desc{font-size:11px;color:var(--text-3);margin-top:6px;line-height:1.4;min-height:32px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.medal-edit-btn{position:absolute;top:8px;left:8px;background:none;border:none;font-size:11px;cursor:pointer;opacity:.5;transition:opacity var(--t-fast)}
+.medal-edit-btn:hover{opacity:1}
+
+/* ── Milestones ────────────────────────────────── */
+.milestones-grid{display:flex;flex-direction:column;gap:16px}
+
+.ms-card{
+  padding:22px 24px;border-radius:var(--r-xl);
+  display:flex;flex-direction:column;gap:16px;
+  position:relative;overflow:hidden;
+  transition:transform var(--t-md),box-shadow var(--t-md);
+}
+.ms-card:hover{transform:translateY(-3px);box-shadow:var(--sh-lg),var(--sh-glow)}
+.ms-card.ms-done{border-color:hsla(152,70%,50%,.35)!important;background:hsla(152,60%,10%,.4)}
+
+/* Top row: icon + text meta */
+.ms-top{display:flex;align-items:flex-start;gap:14px}
+.ms-icon-wrap{
+  width:48px;height:48px;border-radius:var(--r-lg);
+  display:flex;align-items:center;justify-content:center;
+  font-size:22px;flex-shrink:0;
+  box-shadow:0 4px 16px hsla(258,90%,40%,.3);
+}
+.ms-meta{flex:1;min-width:0}
+.ms-cat{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--text-3);margin-bottom:2px}
+.ms-title{font-size:15px;font-weight:700;color:var(--text-1);line-height:1.3}
+.ms-desc{font-size:12px;color:var(--text-3);margin-top:4px;line-height:1.4;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* Progress section */
+.ms-progress-wrap{display:flex;flex-direction:column;gap:8px}
+.ms-bar-bg{
+  height:8px;border-radius:var(--r-full);
+  background:var(--bg-surface);overflow:hidden;position:relative;
+}
+.ms-bar-fill{
+  height:100%;border-radius:var(--r-full);
+  transition:width 800ms cubic-bezier(.23,1,.32,1);
+  position:relative;overflow:hidden;
+}
+.ms-bar-fill::after{
+  content:'';position:absolute;top:0;left:-60%;width:40%;height:100%;
+  background:linear-gradient(90deg,transparent,hsla(0,0%,100%,.25),transparent);
+  animation:shimmer 2.5s infinite;
+}
+@keyframes shimmer{to{left:160%}}
+.ms-done .ms-bar-fill{background:var(--green)!important}
+
+/* Stats row */
+.ms-stats{display:flex;align-items:center;justify-content:space-between}
+.ms-cur{font-size:12px;font-weight:600;color:var(--text-1)}
+.ms-tgt{font-size:12px;color:var(--text-3)}
+.ms-pct{font-size:12px;font-weight:700;color:var(--accent)}
+.ms-pct-done{color:var(--green)!important}
+
+/* Action row */
+.ms-actions{display:flex;gap:8px;opacity:0;transition:opacity var(--t-fast)}
+.ms-card:hover .ms-actions{opacity:1}
 
 /* ── Mood Chart ───────────────────────────────────── */
 .mood-chart-card{margin-bottom:0}
@@ -296,6 +359,63 @@ input[type="time"]::-webkit-calendar-picker-indicator{filter:invert(.7);cursor:p
 #toast.success{border-color:var(--green)}
 #toast.error{border-color:var(--danger)}
 @keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── News Briefings ───────────────────────────────── */
+.news-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+.news-card {
+  padding: 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--glass-bdr);
+  background: var(--glass-bg);
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--t-md), box-shadow var(--t-md);
+  animation: sec-in var(--t-slow) both;
+}
+.news-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--sh-lg), var(--sh-glow);
+}
+.news-date-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+  margin-bottom: 12px;
+  background: hsla(258, 90%, 68%, 0.15);
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  border: 1px solid hsla(258, 90%, 68%, 0.25);
+}
+.news-bullets {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.news-bullets li {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  position: relative;
+  padding-left: 20px;
+}
+.news-bullets li::before {
+  content: '⚡';
+  position: absolute;
+  left: 0;
+  top: 1px;
+  font-size: 12px;
+  color: var(--accent-b);
+}
 
 /* ── Responsive ───────────────────────────────────── */
 @media(max-width:768px){

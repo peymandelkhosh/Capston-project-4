@@ -5,11 +5,67 @@
  */
 
 'use strict';
-const fs   = require('fs');
-const path = require('path');
+const fs     = require('fs');
+const path   = require('path');
+const crypto = require('crypto');
 
 const DB_PATH = path.join(__dirname, 'syncroutine.db');
 let db = null;
+
+// ─── Encryption Setup ─────────────────────────────────────────────────────────
+
+/**
+ * Derive a 32-byte encryption key.
+ * Priority:
+ *   1. DB_ENCRYPTION_KEY env var — must be a 64-char hex string (32 bytes).
+ *   2. SHA-256 of GEMINI_API_KEY (fallback, deterministic across restarts).
+ */
+function deriveEncryptionKey() {
+  if (process.env.DB_ENCRYPTION_KEY) {
+    const keyBuf = Buffer.from(process.env.DB_ENCRYPTION_KEY, 'hex');
+    if (keyBuf.length === 32) {
+      return keyBuf;
+    }
+    console.warn('[DB] DB_ENCRYPTION_KEY is not 64 hex chars — falling back to GEMINI_API_KEY derivation.');
+  }
+  const seed = process.env.GEMINI_API_KEY || 'syncroutine-default-fallback-key';
+  return crypto.createHash('sha256').update(seed).digest();
+}
+
+const ENCRYPTION_KEY = deriveEncryptionKey(); // 32 bytes, Buffer
+
+/**
+ * Encrypt plaintext using AES-256-CBC.
+ * A fresh random 16-byte IV is generated per call.
+ * Returns a string in the format: "<ivHex>:<ciphertextHex>"
+ */
+function encrypt(text) {
+  const iv     = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+  const encrypted = Buffer.concat([cipher.update(String(text), 'utf8'), cipher.final()]);
+  return iv.toString('hex') + ':' + encrypted.toString('hex');
+}
+
+/**
+ * Decrypt a value previously produced by encrypt().
+ * Expects the format "<ivHex>:<ciphertextHex>".
+ * Returns the original plaintext string, or the raw value unchanged on error
+ * (so plain-text legacy rows still surface rather than crashing).
+ */
+function decrypt(stored) {
+  try {
+    const sep = stored.indexOf(':');
+    if (sep === -1) return stored; // not an encrypted value — return as-is
+    const iv          = Buffer.from(stored.slice(0, sep), 'hex');
+    const ciphertext  = Buffer.from(stored.slice(sep + 1), 'hex');
+    const decipher    = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+    const decrypted   = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch {
+    // Graceful degradation: return the raw stored value if decryption fails
+    return stored;
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -75,6 +131,7 @@ async function initDb() {
       duration   INTEGER NOT NULL,
       notes      TEXT    DEFAULT '',
       date       TEXT    NOT NULL,
+      time       TEXT,
       created_at TEXT    DEFAULT (datetime('now'))
     );
 
@@ -118,6 +175,66 @@ async function initDb() {
     );
   `);
 
+  // ── Safe migration: add description column if missing ────────────────────
+  try {
+    db.run("ALTER TABLE user_medals ADD COLUMN description TEXT DEFAULT ''");
+    console.log('[DB] Added description column to user_medals table ✓');
+  } catch (_) { /* column already exists — ignore */ }
+
+  // ── Milestones table (created if missing, safe on repeated startups) ──────
+  try {
+    db.run(`CREATE TABLE IF NOT EXISTS milestones (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      title          TEXT    NOT NULL,
+      description    TEXT    DEFAULT '',
+      category       TEXT    NOT NULL,
+      target_metric  TEXT    NOT NULL,
+      target_value   REAL    NOT NULL,
+      current_value  REAL    DEFAULT 0.0,
+      unit           TEXT    DEFAULT '',
+      created_at     TEXT    DEFAULT (datetime('now'))
+    )`);
+    console.log('[DB] Milestones table verified ✓');
+  } catch(e) {}
+
+  // ── To-Do List table ───────────────────────────────────────────────────────
+  try {
+    db.run(`CREATE TABLE IF NOT EXISTS todos (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      title              TEXT    NOT NULL,
+      description        TEXT    DEFAULT '',
+      estimated_duration INTEGER DEFAULT 0,
+      deadline           TEXT,
+      extra_notes        TEXT    DEFAULT '',
+      status             TEXT    DEFAULT 'pending',
+      created_at         TEXT    DEFAULT (datetime('now'))
+    )`);
+    console.log('[DB] Todos table verified ✓');
+  } catch(e) {}
+
+  // ── News briefings table ───────────────────────────────────────────────────
+  try {
+    db.run(`CREATE TABLE IF NOT EXISTS news_briefings (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      content    TEXT    NOT NULL,
+      date       TEXT    NOT NULL,
+      created_at TEXT    DEFAULT (datetime('now'))
+    )`);
+    console.log('[DB] News briefings table verified ✓');
+  } catch(e) {}
+
+  // ── Update legacy tasks to done status ─────────────────────────────────────
+  try {
+    db.run("UPDATE tasks SET status='done' WHERE status='pending'");
+    save();
+  } catch(e) {}
+
+  // ── Add time column to activities ──────────────────────────────────────────
+  try {
+    db.run("ALTER TABLE activities ADD COLUMN time TEXT");
+    console.log('[DB] Added time column to activities table ✓');
+  } catch(e) {}
+
   // Seed default medals only if empty
   const count = get('SELECT COUNT(*) as n FROM user_medals');
   if (!count || count.n === 0) {
@@ -152,16 +269,24 @@ const activities = {
 
   create: (data) => {
     const id = run(
-      'INSERT INTO activities (type, duration, notes, date) VALUES (?, ?, ?, ?)',
-      [data.type, data.duration, data.notes || '', data.date]
+      'INSERT INTO activities (type, duration, notes, date, time) VALUES (?, ?, ?, ?, ?)',
+      [data.type, data.duration, data.notes || '', data.date, data.time || null]
     );
+    
+    // Automatically log corresponding medal if one exists
+    const allMedals = medals.getAll();
+    const match = allMedals.find(m => m.name.toLowerCase() === data.type.toLowerCase());
+    if (match) {
+      medals.logToday(match.id);
+    }
+
     return get('SELECT * FROM activities WHERE id = ?', [id]);
   },
 
   update: (id, data) => {
     run(
-      'UPDATE activities SET type=?, duration=?, notes=?, date=? WHERE id=?',
-      [data.type, data.duration, data.notes || '', data.date, id]
+      'UPDATE activities SET type=?, duration=?, notes=?, date=?, time=? WHERE id=?',
+      [data.type, data.duration, data.notes || '', data.date, data.time || null, id]
     );
     return get('SELECT * FROM activities WHERE id = ?', [id]);
   },
@@ -178,7 +303,7 @@ const tasks = {
 
   create: (data) => {
     const id = run(
-      'INSERT INTO tasks (title, notes, due_date, priority) VALUES (?, ?, ?, ?)',
+      "INSERT INTO tasks (title, notes, due_date, status, priority) VALUES (?, ?, ?, 'done', ?)",
       [data.title, data.notes || '', data.due_date || null, data.priority || 'medium']
     );
     return get('SELECT * FROM tasks WHERE id = ?', [id]);
@@ -187,7 +312,7 @@ const tasks = {
   update: (id, data) => {
     run(
       'UPDATE tasks SET title=?, notes=?, due_date=?, status=?, priority=? WHERE id=?',
-      [data.title, data.notes || '', data.due_date || null, data.status || 'pending', data.priority || 'medium', id]
+      [data.title, data.notes || '', data.due_date || null, data.status || 'done', data.priority || 'medium', id]
     );
     return get('SELECT * FROM tasks WHERE id = ?', [id]);
   },
@@ -234,31 +359,46 @@ const schedules = {
 // ─── Journal ──────────────────────────────────────────────────────────────────
 
 const journal = {
-  getAll: () => all('SELECT * FROM journal_entries ORDER BY date DESC, created_at DESC'),
+  /** Return all journal entries with content decrypted. */
+  getAll: () => {
+    const rows = all('SELECT * FROM journal_entries ORDER BY date DESC, created_at DESC');
+    return rows.map(r => ({ ...r, content: decrypt(r.content) }));
+  },
 
-  getRecent: (days = 7) => all(
-    "SELECT * FROM journal_entries WHERE date >= date('now', '-' || ? || ' days') ORDER BY date DESC",
-    [days]
-  ),
+  /** Return recent journal entries (default last 7 days) with content decrypted. */
+  getRecent: (days = 7) => {
+    const rows = all(
+      "SELECT * FROM journal_entries WHERE date >= date('now', '-' || ? || ' days') ORDER BY date DESC",
+      [days]
+    );
+    return rows.map(r => ({ ...r, content: decrypt(r.content) }));
+  },
 
   moodStats: () => get(
     'SELECT AVG(mood) as avg_mood, COUNT(*) as total_entries, MAX(date) as last_entry FROM journal_entries'
   ),
 
+  /** Encrypt content before writing to the database. */
   create: (data) => {
+    const encryptedContent = encrypt(data.content || '');
     const id = run(
       'INSERT INTO journal_entries (content, mood, mood_label, ai_insight, date) VALUES (?, ?, ?, ?, ?)',
-      [data.content, data.mood || 3, data.mood_label || 'neutral', data.ai_insight || '', data.date]
+      [encryptedContent, data.mood || 3, data.mood_label || 'neutral', data.ai_insight || '', data.date]
     );
-    return get('SELECT * FROM journal_entries WHERE id = ?', [id]);
+    // Fetch the row and return with decrypted content
+    const row = get('SELECT * FROM journal_entries WHERE id = ?', [id]);
+    return row ? { ...row, content: decrypt(row.content) } : null;
   },
 
+  /** Encrypt updated content before writing. Returns row with decrypted content. */
   update: (id, data) => {
+    const encryptedContent = encrypt(data.content || '');
     run(
       'UPDATE journal_entries SET content=?, mood=?, mood_label=?, ai_insight=? WHERE id=?',
-      [data.content, data.mood || 3, data.mood_label || 'neutral', data.ai_insight || '', id]
+      [encryptedContent, data.mood || 3, data.mood_label || 'neutral', data.ai_insight || '', id]
     );
-    return get('SELECT * FROM journal_entries WHERE id = ?', [id]);
+    const row = get('SELECT * FROM journal_entries WHERE id = ?', [id]);
+    return row ? { ...row, content: decrypt(row.content) } : null;
   },
 
   delete: (id) => { db.run('DELETE FROM journal_entries WHERE id = ?', [id]); save(); },
@@ -273,8 +413,16 @@ const medals = {
 
   create: (data) => {
     const id = run(
-      'INSERT INTO user_medals (name, icon) VALUES (?, ?)',
-      [data.name, data.icon || '🏅']
+      'INSERT INTO user_medals (name, icon, description) VALUES (?, ?, ?)',
+      [data.name, data.icon || '🏅', data.description || '']
+    );
+    return get('SELECT * FROM user_medals WHERE id = ?', [id]);
+  },
+
+  update: (id, data) => {
+    run(
+      'UPDATE user_medals SET name = ?, icon = ?, description = ? WHERE id = ?',
+      [data.name, data.icon || '🏅', data.description || '', id]
     );
     return get('SELECT * FROM user_medals WHERE id = ?', [id]);
   },
@@ -295,11 +443,70 @@ const medals = {
   delete: (id) => { db.run('DELETE FROM user_medals WHERE id = ?', [id]); save(); },
 };
 
-// ─── Context snapshot for AI ──────────────────────────────────────────────────
+// ─── Milestones ─────────────────────────────────────────────────────────────
+
+const milestones = {
+  getAll: () => all('SELECT * FROM milestones ORDER BY created_at DESC'),
+
+  getById: (id) => get('SELECT * FROM milestones WHERE id = ?', [id]),
+
+  create: (data) => {
+    const id = run(
+      `INSERT INTO milestones
+         (title, description, category, target_metric, target_value, current_value, unit)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        data.title, data.description || '',
+        data.category, data.target_metric,
+        parseFloat(data.target_value) || 0,
+        parseFloat(data.current_value) || 0,
+        data.unit || '',
+      ]
+    );
+    return get('SELECT * FROM milestones WHERE id = ?', [id]);
+  },
+
+  update: (id, data) => {
+    run(
+      `UPDATE milestones
+       SET title = ?, description = ?, category = ?, target_metric = ?,
+           target_value = ?, current_value = ?, unit = ?
+       WHERE id = ?`,
+      [
+        data.title, data.description || '',
+        data.category, data.target_metric,
+        parseFloat(data.target_value) || 0,
+        parseFloat(data.current_value) || 0,
+        data.unit || '', id,
+      ]
+    );
+    return get('SELECT * FROM milestones WHERE id = ?', [id]);
+  },
+
+  delete: (id) => { db.run('DELETE FROM milestones WHERE id = ?', [id]); save(); },
+};
+
+// ─── News Briefings ──────────────────────────────────────────────────────────
+
+const news = {
+  getAll: () => all('SELECT * FROM news_briefings ORDER BY date DESC, created_at DESC'),
+  getByDate: (date) => get('SELECT * FROM news_briefings WHERE date = ?', [date]),
+  create: (data) => {
+    const id = run(
+      'INSERT INTO news_briefings (content, date) VALUES (?, ?)',
+      [data.content, data.date]
+    );
+    return get('SELECT * FROM news_briefings WHERE id = ?', [id]);
+  },
+  deleteByDate: (date) => { db.run('DELETE FROM news_briefings WHERE date = ?', [date]); save(); }
+};
+
+// ─── Context snapshot for AI ─────────────────────────────────────────────────────────────────
 
 function getContextSnapshot() {
   return {
     activities : activities.getRecent(7),
+    todos      : todos.getPending(),
     tasks      : tasks.getPending(),
     schedules  : schedules.getUpcoming(),
     journal    : journal.getRecent(7),
@@ -311,4 +518,38 @@ function getContextSnapshot() {
   };
 }
 
-module.exports = { initDb, activities, tasks, schedules, journal, medals, getContextSnapshot, DB_PATH };
+// ─── To-Do List ───────────────────────────────────────────────────────────────
+
+const todos = {
+  getAll: () => all('SELECT * FROM todos ORDER BY deadline ASC, created_at DESC'),
+
+  getPending: () => all("SELECT * FROM todos WHERE status='pending' ORDER BY deadline ASC"),
+
+  create: (data) => {
+    const id = run(
+      "INSERT INTO todos (title, description, estimated_duration, deadline, extra_notes, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+      [data.title, data.description || '', parseInt(data.estimated_duration) || 0, data.deadline || null, data.extra_notes || '']
+    );
+    save();
+    return get('SELECT * FROM todos WHERE id = ?', [id]);
+  },
+
+  update: (id, data) => {
+    run(
+      'UPDATE todos SET title=?, description=?, estimated_duration=?, deadline=?, extra_notes=?, status=? WHERE id=?',
+      [data.title, data.description || '', parseInt(data.estimated_duration) || 0, data.deadline || null, data.extra_notes || '', data.status || 'pending', id]
+    );
+    save();
+    return get('SELECT * FROM todos WHERE id = ?', [id]);
+  },
+
+  complete: (id) => {
+    run("UPDATE todos SET status='done' WHERE id=?", [id]);
+    save();
+    return get('SELECT * FROM todos WHERE id = ?', [id]);
+  },
+
+  delete: (id) => { db.run('DELETE FROM todos WHERE id = ?', [id]); save(); },
+};
+
+module.exports = { initDb, activities, tasks, schedules, journal, medals, milestones, news, todos, getContextSnapshot, DB_PATH };

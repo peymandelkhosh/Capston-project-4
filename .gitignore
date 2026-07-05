@@ -28,3 +28,9 @@ build/
 # Temp files
 *.tmp
 *.temp
+
+# Backups
+backups/
+backup_second/
+
+capston-4-501308-680b4fcad20f.json

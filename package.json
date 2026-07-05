@@ -5,11 +5,13 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev"  : "node --watch server.js",
+    "mcp"  : "node mcp-server.js"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.11.0",
     "@google/generative-ai": "^0.24.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "multer": "^2.0.1",
@@ -19,7 +21,14 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "keywords": ["ai", "wellness", "routine", "gemini", "telegram", "kaggle"],
+  "keywords": [
+    "ai",
+    "wellness",
+    "routine",
+    "gemini",
+    "telegram",
+    "kaggle"
+  ],
   "author": "SyncRoutine Dev",
   "license": "MIT"
 }

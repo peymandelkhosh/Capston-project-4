@@ -33,7 +33,7 @@ document.querySelectorAll('[data-close]').forEach(el =>
 );
 
 // ── Router ────────────────────────────────────────────────────
-const SECTIONS = ['dashboard','activities','tasks','schedules','journal','medals'];
+const SECTIONS = ['dashboard','activities','todos','schedules','journal','medals','milestones','news'];
 
 function goTo(section, prefill=null) {
   if (!SECTIONS.includes(section)) section = 'dashboard';
@@ -51,7 +51,7 @@ function goTo(section, prefill=null) {
 function prefillSection(section, payload) {
   const map = {
     activities: () => openActivityModal(null, payload),
-    tasks:      () => openTaskModal(null, payload),
+    todos:      () => openTodoModal(null, payload),
     schedules:  () => openSchedModal(null, payload),
     journal:    () => openJournalModal(null, payload),
   };
@@ -79,20 +79,17 @@ function initTopbar() {
   document.getElementById('topbar-date').textContent = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
 }
 
-// ── Section loaders ───────────────────────────────────────────
-const loaders = { dashboard:loadDashboard, activities:loadActivities, tasks:loadTasks, schedules:loadSchedules, journal:loadJournal, medals:loadMedals };
+const loaders = { dashboard:loadDashboard, activities:loadActivities, todos:loadTodos, schedules:loadSchedules, journal:loadJournal, medals:loadMedals, milestones:loadMilestones, news:loadNews };
 
 // ─ Dashboard ─────────────────────────────────────────────────
 async function loadDashboard() {
   try {
-    const [aStats, tList, mStats, upcoming] = await Promise.all([
+    const [aStats, mStats, upcoming] = await Promise.all([
       api.get('/api/activities/stats'),
-      api.get('/api/tasks/pending'),
       api.get('/api/journal/stats'),
       api.get('/api/schedules/upcoming'),
     ]);
     document.getElementById('stat-act-count').textContent  = aStats.total_count  || 0;
-    document.getElementById('stat-task-count').textContent = tList.length         || 0;
     document.getElementById('stat-act-mins').textContent   = aStats.total_minutes || 0;
     const avg = mStats.avg_mood;
     document.getElementById('stat-mood-avg').textContent = avg ? `${moodEm(Math.round(avg))} ${parseFloat(avg).toFixed(1)}` : '—';
@@ -135,9 +132,10 @@ function openActivityModal(id=null, pre={}) {
   document.getElementById('act-duration').value = pre.duration||'';
   document.getElementById('act-date').value     = pre.date||today();
   document.getElementById('act-notes').value    = pre.notes||'';
+  document.getElementById('act-time').value     = pre.time||'';
   if (id) api.get('/api/activities').then(items => {
     const a = items.find(x=>x.id===id);
-    if(a){ document.getElementById('act-type').value=a.type; document.getElementById('act-duration').value=a.duration; document.getElementById('act-date').value=a.date; document.getElementById('act-notes').value=a.notes||''; }
+    if(a){ document.getElementById('act-type').value=a.type; document.getElementById('act-duration').value=a.duration; document.getElementById('act-date').value=a.date; document.getElementById('act-notes').value=a.notes||''; document.getElementById('act-time').value=a.time||''; }
   });
   openModal('activity');
 }
@@ -147,7 +145,7 @@ document.getElementById('btn-add-activity').addEventListener('click', ()=>openAc
 document.getElementById('form-activity').addEventListener('submit', async e=>{
   e.preventDefault();
   const id = document.getElementById('act-id').value;
-  const data = { type:document.getElementById('act-type').value, duration:parseInt(document.getElementById('act-duration').value), notes:document.getElementById('act-notes').value, date:document.getElementById('act-date').value };
+  const data = { type:document.getElementById('act-type').value, duration:parseInt(document.getElementById('act-duration').value), notes:document.getElementById('act-notes').value, date:document.getElementById('act-date').value, time:document.getElementById('act-time').value||null };
   try {
     id ? await api.put(`/api/activities/${id}`,data) : await api.post('/api/activities',data);
     closeModal('activity'); loadActivities(); loadDashboard(); toast(id?'Updated ✓':'Logged ✓');
@@ -161,66 +159,84 @@ async function delActivity(id) {
 }
 window.delActivity = delActivity;
 
-// ─ Tasks ──────────────────────────────────────────────────────
-let taskFilter = 'all';
-
-async function loadTasks() {
+// ─ To-Do List ──────────────────────────────────────────────────
+async function loadTodos() {
   try {
-    const all = await api.get('/api/tasks');
-    const items = all.filter(t => taskFilter==='all' || t.status===taskFilter);
-    const list  = document.getElementById('tasks-list');
-    const empty = document.getElementById('tasks-empty');
+    const items = await api.get('/api/todos/pending');
+    const list  = document.getElementById('todos-list');
+    const empty = document.getElementById('todos-empty');
     if(!items.length){ list.innerHTML=''; empty.classList.remove('hidden'); return; }
     empty.classList.add('hidden');
     list.innerHTML = items.map(t=>`
-      <div class="item-row task-row ${t.status}">
-        <div class="task-check ${t.status==='done'?'done':''}" onclick="toggleTask(${t.id},'${t.status}')">${t.status==='done'?'✓':''}</div>
+      <div class="item-row">
+        <span class="item-icon">✅</span>
         <div class="item-body">
           <div class="item-title">${esc(t.title)}</div>
-          <div class="item-meta">${t.due_date?fmtD(t.due_date)+' · ':''}<span class="badge badge-${t.priority}">${t.priority}</span>${t.notes?' · '+esc(t.notes):''}</div>
+          <div class="item-meta">
+            ${t.deadline ? 'Due: ' + fmtD(t.deadline) + (t.deadline.includes('T') ? ' ' + fmtT(t.deadline.split('T')[1]) : '') + ' · ' : ''}
+            ${t.estimated_duration ? t.estimated_duration + ' mins · ' : ''}
+            ${t.description ? esc(t.description) : ''}
+            ${t.extra_notes ? '<br/><small style="color:var(--amber)">Note: ' + esc(t.extra_notes) + '</small>' : ''}
+          </div>
         </div>
         <div class="item-actions">
-          <button class="btn-icon" onclick="openTaskModal(${t.id})">✏️</button>
-          <button class="btn-icon danger" onclick="delTask(${t.id})">🗑️</button>
+          <button class="btn-icon" style="color:var(--green)" onclick="completeTodo(${t.id})" title="Complete">✔</button>
+          <button class="btn-icon" onclick="openTodoModal(${t.id})" title="Edit">✏️</button>
+          <button class="btn-icon danger" onclick="delTodo(${t.id})" title="Delete">🗑️</button>
         </div>
       </div>`).join('');
-  } catch(e) { toast('Failed to load tasks','error'); }
+  } catch(e) { toast('Failed to load to-dos','error'); }
 }
 
-document.querySelectorAll('.filter-btn').forEach(btn=>btn.addEventListener('click',()=>{
-  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active'); taskFilter=btn.dataset.filter; loadTasks();
-}));
-
-function openTaskModal(id=null, pre={}) {
-  document.getElementById('modal-task-title').textContent = id ? 'Edit Task' : 'Add Task';
-  document.getElementById('task-id').value       = id||'';
-  document.getElementById('task-title').value    = pre.title||'';
-  document.getElementById('task-due').value      = pre.due_date||'';
-  document.getElementById('task-priority').value = pre.priority||'medium';
-  document.getElementById('task-notes').value    = pre.notes||'';
-  if(id) api.get('/api/tasks').then(items=>{ const t=items.find(x=>x.id===id); if(t){ document.getElementById('task-title').value=t.title; document.getElementById('task-due').value=t.due_date||''; document.getElementById('task-priority').value=t.priority; document.getElementById('task-notes').value=t.notes||''; } });
-  openModal('task');
+function openTodoModal(id=null, pre={}) {
+  document.getElementById('modal-todo-title').textContent = id ? 'Edit Task' : 'Add Task';
+  document.getElementById('todo-id').value       = id||'';
+  document.getElementById('todo-title').value    = pre.title||'';
+  document.getElementById('todo-desc').value     = pre.description||'';
+  document.getElementById('todo-duration').value = pre.estimated_duration||'';
+  document.getElementById('todo-deadline').value = pre.deadline||'';
+  document.getElementById('todo-extra').value    = pre.extra_notes||'';
+  
+  if(id) {
+    api.get('/api/todos').then(items=>{ 
+      const t=items.find(x=>x.id===id); 
+      if(t){ 
+        document.getElementById('todo-title').value=t.title; 
+        document.getElementById('todo-desc').value=t.description||''; 
+        document.getElementById('todo-duration').value=t.estimated_duration||''; 
+        document.getElementById('todo-deadline').value=t.deadline||'';
+        document.getElementById('todo-extra').value=t.extra_notes||'';
+      } 
+    });
+  }
+  openModal('todo');
 }
-window.openTaskModal = openTaskModal;
-document.getElementById('btn-add-task').addEventListener('click',()=>openTaskModal());
+window.openTodoModal = openTodoModal;
+document.getElementById('btn-add-todo').addEventListener('click',()=>openTodoModal());
 
-document.getElementById('form-task').addEventListener('submit', async e=>{
+document.getElementById('form-todo').addEventListener('submit', async e=>{
   e.preventDefault();
-  const id=document.getElementById('task-id').value;
-  const data={title:document.getElementById('task-title').value,notes:document.getElementById('task-notes').value,due_date:document.getElementById('task-due').value||null,priority:document.getElementById('task-priority').value,status:'pending'};
-  try{ id?await api.put(`/api/tasks/${id}`,data):await api.post('/api/tasks',data); closeModal('task'); loadTasks(); loadDashboard(); toast(id?'Updated ✓':'Task added ✓'); }
+  const id=document.getElementById('todo-id').value;
+  const data={
+    title: document.getElementById('todo-title').value,
+    description: document.getElementById('todo-desc').value,
+    estimated_duration: document.getElementById('todo-duration').value,
+    deadline: document.getElementById('todo-deadline').value || null,
+    extra_notes: document.getElementById('todo-extra').value
+  };
+  try{ 
+    id ? await api.put(`/api/todos/${id}`,data) : await api.post('/api/todos',data); 
+    closeModal('todo'); loadTodos(); toast(id?'Task Updated ✓':'Task Added ✓'); 
+  }
   catch(e){ toast('Save failed','error'); }
 });
 
-async function toggleTask(id, status) {
-  try{ status==='done'?await api.put(`/api/tasks/${id}`,{title:'',due_date:null,priority:'medium',notes:'',status:'pending'}):await api.patch(`/api/tasks/${id}/complete`); loadTasks(); loadDashboard(); }
-  catch(e){ toast('Update failed','error'); }
-}
-window.toggleTask = toggleTask;
+async function delTodo(id){ if(!confirm('Delete task?'))return; try{ await api.del(`/api/todos/${id}`); loadTodos(); toast('Deleted ✓'); }catch(e){ toast('Failed','error'); } }
+window.delTodo = delTodo;
 
-async function delTask(id){ if(!confirm('Delete task?'))return; try{ await api.del(`/api/tasks/${id}`); loadTasks(); toast('Deleted ✓'); }catch(e){ toast('Failed','error'); } }
-window.delTask = delTask;
+async function completeTodo(id){ try{ await api.put(`/api/todos/${id}/complete`); loadTodos(); toast('Completed! 🎉'); }catch(e){ toast('Failed','error'); } }
+window.completeTodo = completeTodo;
+
 
 // ─ Schedules ──────────────────────────────────────────────────
 async function loadSchedules() {
@@ -336,10 +352,12 @@ async function loadMedals() {
     if(!items.length){ grid.innerHTML=''; empty.classList.remove('hidden'); return; }
     empty.classList.add('hidden');
     const td = today();
-    grid.innerHTML = items.map(m=>`
+    grid.innerHTML = items.map(m => `
       <div class="medal-card glass ${m.last_logged===td?'medal-logged':''}">
+        <button class="medal-edit-btn" onclick="editMedal(${m.id})">✏️</button>
         <span class="medal-emoji">${m.icon}</span>
         <div class="medal-name">${esc(m.name)}</div>
+        <div class="medal-desc">${esc(m.description || '')}</div>
         <div class="medal-streak">${m.streak}</div>
         <div class="medal-streak-lbl">day streak 🔥</div>
         <button class="medal-log-btn" onclick="logMedal(${m.id})">${m.last_logged===td?'✓ Logged Today':'+ Log Today'}</button>
@@ -348,18 +366,198 @@ async function loadMedals() {
   }catch(e){ toast('Failed to load medals','error'); }
 }
 
-document.getElementById('btn-add-medal').addEventListener('click',()=>openModal('medal'));
-document.getElementById('form-medal').addEventListener('submit', async e=>{
-  e.preventDefault();
-  const data={name:document.getElementById('medal-name').value,icon:document.getElementById('medal-icon').value||'🏅'};
-  try{ await api.post('/api/medals',data); closeModal('medal'); document.getElementById('form-medal').reset(); document.getElementById('medal-icon').value='🏅'; loadMedals(); toast('Medal created ✓'); }
-  catch(e){ toast('Save failed','error'); }
+document.getElementById('btn-add-medal').addEventListener('click', () => {
+  document.getElementById('modal-medal-title').textContent = 'New Habit Medal';
+  delete document.getElementById('form-medal').dataset.editId;
+  document.getElementById('form-medal').reset();
+  document.getElementById('medal-icon').value = '🏅';
+  document.querySelector('#form-medal button[type="submit"]').textContent = 'Create';
+  openModal('medal');
 });
+
+document.getElementById('form-medal').addEventListener('submit', async e => {
+  e.preventDefault();
+  const id   = document.getElementById('form-medal').dataset.editId;
+  const data = {
+    name       : document.getElementById('medal-name').value,
+    icon       : document.getElementById('medal-icon').value || '🏅',
+    description: document.getElementById('medal-desc').value || '',
+  };
+  try {
+    if (id) {
+      await api.put(`/api/medals/${id}`, data);
+      toast('Medal updated ✓');
+    } else {
+      await api.post('/api/medals', data);
+      toast('Medal created ✓');
+    }
+    closeModal('medal');
+    document.getElementById('form-medal').reset();
+    document.getElementById('medal-icon').value = '🏅';
+    delete document.getElementById('form-medal').dataset.editId;
+    loadMedals();
+  } catch(e) { toast('Save failed', 'error'); }
+});
+
+async function editMedal(id) {
+  try {
+    const m = await api.get(`/api/medals/${id}`);
+    document.getElementById('modal-medal-title').textContent = 'Edit Habit Medal';
+    document.getElementById('form-medal').dataset.editId = m.id;
+    document.getElementById('medal-name').value = m.name;
+    document.getElementById('medal-icon').value = m.icon;
+    document.getElementById('medal-desc').value = m.description || '';
+    document.querySelector('#form-medal button[type="submit"]').textContent = 'Save Changes';
+    openModal('medal');
+  } catch(e) { toast('Failed to load medal details', 'error'); }
+}
+window.editMedal = editMedal;
 
 async function logMedal(id){ try{ await api.post(`/api/medals/${id}/log`); loadMedals(); toast('Streak updated! 🔥'); }catch(e){ toast('Failed','error'); } }
 window.logMedal = logMedal;
 async function delMedal(id){ if(!confirm('Delete medal?'))return; try{ await api.del(`/api/medals/${id}`); loadMedals(); toast('Deleted ✓'); }catch(e){ toast('Failed','error'); } }
 window.delMedal = delMedal;
+
+// ─ Milestones ────────────────────────────────────────────
+
+// Category icon map
+const catIcon = c => ({Exercise:'🏋️',Running:'🏃',Studying:'📚',Reading:'📖',Meditation:'🧘',Work:'💼',Yoga:'🤸',Cycling:'🚴',Other:'⚡'})[c]||'🎯';
+
+// Gradient palette for progress bars — cycles through 6 vibrant HSL pairs
+const msGrad = i => [
+  'hsl(258,90%,65%),hsl(210,90%,58%)',   // violet → blue
+  'hsl(152,70%,48%),hsl(196,90%,52%)',   // green → cyan
+  'hsl(330,85%,62%),hsl(18,95%,60%)',    // pink  → orange
+  'hsl(38,95%,60%),hsl(330,85%,62%)',    // amber → pink
+  'hsl(196,90%,52%),hsl(152,70%,48%)',   // cyan  → green
+  'hsl(18,95%,60%),hsl(258,90%,65%)',    // orange→ violet
+][i % 6];
+
+/**
+ * Derive current_value from local activity log.
+ * - metric='hours'  → sum activity.duration (min) / 60 for matching category
+ * - metric='days'   → count distinct dates with at least one matching activity
+ * - other metrics   → stored current_value (manually updated or kept from DB)
+ */
+function computeProgress(milestone, activities) {
+  const { category, target_metric, current_value } = milestone;
+  const matching = activities.filter(a => a.type === category);
+
+  if (target_metric === 'hours') {
+    return matching.reduce((s, a) => s + (a.duration || 0), 0) / 60;
+  }
+  if (target_metric === 'days') {
+    const uniqueDates = new Set(matching.map(a => a.date));
+    return uniqueDates.size;
+  }
+  // For words/lessons/calories we use the stored value (manually updated via edit)
+  return parseFloat(current_value) || 0;
+}
+
+async function loadMilestones() {
+  try {
+    const [items, activities] = await Promise.all([
+      api.get('/api/milestones'),
+      api.get('/api/activities'),
+    ]);
+    const grid  = document.getElementById('milestones-grid');
+    const empty = document.getElementById('milestones-empty');
+    if (!items.length) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+
+    grid.innerHTML = items.map((m, i) => {
+      const current   = computeProgress(m, activities);
+      const target    = parseFloat(m.target_value) || 1;
+      const pct       = Math.min(100, (current / target) * 100);
+      const done      = pct >= 100;
+      const grad      = msGrad(i);
+      const unit      = m.unit || m.target_metric;
+      const curFmt    = current % 1 === 0 ? current.toFixed(0) : current.toFixed(1);
+      const tgtFmt    = target  % 1 === 0 ? target.toFixed(0)  : target.toFixed(1);
+
+      return `
+      <div class="ms-card glass ${done ? 'ms-done' : ''}">
+        <div class="ms-top">
+          <div class="ms-icon-wrap" style="background:linear-gradient(135deg,${grad})">${catIcon(m.category)}</div>
+          <div class="ms-meta">
+            <div class="ms-cat">${esc(m.category)} &middot; ${esc(m.target_metric)}</div>
+            <div class="ms-title">${esc(m.title)}</div>
+            ${m.description ? `<div class="ms-desc">${esc(m.description)}</div>` : ''}
+          </div>
+        </div>
+        <div class="ms-progress-wrap">
+          <div class="ms-bar-bg">
+            <div class="ms-bar-fill" style="width:${pct.toFixed(1)}%;background:linear-gradient(90deg,${grad})"></div>
+          </div>
+          <div class="ms-stats">
+            <span class="ms-cur">${curFmt} ${esc(unit)}</span>
+            <span class="ms-pct ${done ? 'ms-pct-done' : ''}">${done ? '✓ Complete!' : pct.toFixed(1)+'%'}</span>
+            <span class="ms-tgt">${tgtFmt} ${esc(unit)}</span>
+          </div>
+        </div>
+        <div class="ms-actions">
+          <button class="btn-icon" onclick="editMilestone(${m.id})">✏️ Edit</button>
+          <button class="btn-icon danger" onclick="delMilestone(${m.id})">🗑️</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { toast('Failed to load milestones','error'); }
+}
+
+async function editMilestone(id) {
+  try {
+    const m = await api.get(`/api/milestones/${id}`);
+    document.getElementById('modal-ms-title').textContent    = 'Edit Milestone';
+    document.getElementById('form-milestone').dataset.editId = m.id;
+    document.getElementById('ms-title').value      = m.title;
+    document.getElementById('ms-desc').value       = m.description || '';
+    document.getElementById('ms-category').value   = m.category;
+    document.getElementById('ms-metric').value     = m.target_metric;
+    document.getElementById('ms-target').value     = m.target_value;
+    document.getElementById('ms-unit').value       = m.unit || '';
+    document.getElementById('ms-submit-btn').textContent = 'Save Changes';
+    openModal('milestone');
+  } catch(e) { toast('Failed to load milestone','error'); }
+}
+window.editMilestone = editMilestone;
+
+async function delMilestone(id) {
+  if (!confirm('Delete this milestone?')) return;
+  try { await api.del(`/api/milestones/${id}`); loadMilestones(); toast('Deleted ✓'); }
+  catch(e) { toast('Delete failed','error'); }
+}
+window.delMilestone = delMilestone;
+
+document.getElementById('btn-add-milestone').addEventListener('click', () => {
+  document.getElementById('modal-ms-title').textContent = 'New Milestone';
+  delete document.getElementById('form-milestone').dataset.editId;
+  document.getElementById('form-milestone').reset();
+  document.getElementById('ms-submit-btn').textContent = 'Create Milestone';
+  openModal('milestone');
+});
+
+document.getElementById('form-milestone').addEventListener('submit', async e => {
+  e.preventDefault();
+  const id   = document.getElementById('form-milestone').dataset.editId;
+  const data = {
+    title         : document.getElementById('ms-title').value,
+    description   : document.getElementById('ms-desc').value || '',
+    category      : document.getElementById('ms-category').value,
+    target_metric : document.getElementById('ms-metric').value,
+    target_value  : parseFloat(document.getElementById('ms-target').value) || 0,
+    current_value : 0,   // always recalculated from activities on render
+    unit          : document.getElementById('ms-unit').value || '',
+  };
+  try {
+    id ? await api.put(`/api/milestones/${id}`, data)
+       : await api.post('/api/milestones', data);
+    toast(id ? 'Milestone updated ✓' : 'Milestone created ✓');
+    closeModal('milestone');
+    document.getElementById('form-milestone').reset();
+    delete document.getElementById('form-milestone').dataset.editId;
+    loadMilestones();
+  } catch(e) { toast('Save failed','error'); }
+});
 
 // ── Calendar ──────────────────────────────────────────────────
 let calView = 'month', calDate = new Date();
@@ -367,23 +565,23 @@ let calView = 'month', calDate = new Date();
 async function renderCalendar() {
   const title = document.getElementById('cal-title');
   const body  = document.getElementById('calendar-body');
-  let scheds = [];
-  try{ scheds = await api.get('/api/schedules'); }catch(_){}
+  let scheds = [], acts = [];
+  try{ [scheds, acts] = await Promise.all([api.get('/api/schedules'), api.get('/api/activities')]); }catch(_){}
 
   if (calView==='month') {
     title.textContent = calDate.toLocaleDateString('en-US',{month:'long',year:'numeric'});
-    body.innerHTML = monthGrid(calDate, scheds);
+    body.innerHTML = monthGrid(calDate, scheds, acts);
   } else if (calView==='week') {
     const ws = weekStart(calDate), we = new Date(ws); we.setDate(we.getDate()+6);
     title.textContent = `${ws.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${we.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
-    body.innerHTML = dayGrid(ws, scheds);
+    body.innerHTML = weekGrid(ws, scheds, acts);
   } else {
     title.textContent = calDate.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
-    body.innerHTML = dayGrid(calDate, scheds);
+    body.innerHTML = dayGrid(calDate, scheds, acts);
   }
 }
 
-function monthGrid(date, scheds) {
+function monthGrid(date, scheds, acts) {
   const y=date.getFullYear(), m=date.getMonth();
   const first=new Date(y,m,1), last=new Date(y,m+1,0);
   const td=today();
@@ -394,21 +592,81 @@ function monthGrid(date, scheds) {
   for(let d=1;d<=last.getDate();d++){
     const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const dots=scheds.filter(s=>s.date===ds);
-    h+=`<div class="cal-day${ds===td?' today':''}"><div class="cal-dn">${d}</div>${dots.length?`<div class="cal-dot" title="${dots.map(s=>s.title).join(', ')}"></div>`:''}</div>`;
+    const actDots=acts.filter(a=>a.date===ds);
+    const allTitles = [...dots.map(s=>s.title), ...actDots.map(a=>`${a.type} (${a.duration}m)`)];
+    h+=`<div class="cal-day${ds===td?' today':''}"><div class="cal-dn">${d}</div>${allTitles.length?`<div class="cal-dot" title="${esc(allTitles.join(', '))}"></div>`:''}</div>`;
   }
   return h+'</div>';
 }
 
-function dayGrid(date, scheds) {
+function dayGrid(date, scheds, acts) {
   const ds=date.toISOString().slice(0,10);
   const dayScheds=scheds.filter(s=>s.date===ds);
+  const allDayActs=acts.filter(a=>a.date===ds && !a.time);
+  const timedActs =acts.filter(a=>a.date===ds && a.time);
   let h='<div class="cal-time-grid">';
+  if (allDayActs.length) {
+    h+=`<div class="cal-hr-lbl">Acts</div>`;
+    h+=`<div class="cal-hr-slot">${allDayActs.map(a=>`<span class="cal-pill" style="background:var(--green);color:white" title="${a.duration} min">${actIcon(a.type)} ${esc(a.type)}</span>`).join('')}</div>`;
+  }
   for(let hr=6;hr<=22;hr++){
     h+=`<div class="cal-hr-lbl">${fmtT(hr+':00')}</div>`;
     const evts=dayScheds.filter(s=>s.time&&parseInt(s.time.split(':')[0])===hr);
-    h+=`<div class="cal-hr-slot">${evts.map(e=>`<span class="cal-pill">${esc(e.title)}</span>`).join('')}</div>`;
+    const tacts=timedActs.filter(a=>a.time&&parseInt(a.time.split(':')[0])===hr);
+    h+=`<div class="cal-hr-slot">`;
+    h+=evts.map(e=>`<span class="cal-pill">${esc(e.title)}</span>`).join('');
+    h+=tacts.map(a=>`<span class="cal-pill" style="background:var(--green);color:white" title="${a.duration} min">${actIcon(a.type)} ${esc(a.type)}</span>`).join('');
+    h+=`</div>`;
   }
   return h+'</div>';
+}
+
+function weekGrid(startDate, scheds, acts) {
+  const daysShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + i);
+    dates.push(d);
+  }
+  let h = '<div class="cal-week-grid">';
+
+  // Row 0: Day Headers
+  h += '<div class="cal-week-hdr-spacer"></div>';
+  dates.forEach((d, i) => {
+    const isToday = d.toISOString().slice(0, 10) === today();
+    h += `<div class="cal-day-hdr${isToday ? ' week-today' : ''}">${daysShort[i]} ${d.getDate()}</div>`;
+  });
+
+  // Activities Row
+  h += `<div class="cal-hr-lbl">Acts</div>`;
+  dates.forEach(d => {
+    const ds = d.toISOString().slice(0, 10);
+    const dayActs = acts.filter(a => a.date === ds && !a.time);
+    h += `<div class="cal-hr-slot">${dayActs.map(a => `<span class="cal-pill" style="background:var(--green);color:white" title="${a.duration} min">${actIcon(a.type)}</span>`).join('')}</div>`;
+  });
+
+  // Hours: 6 to 22
+  for (let hr = 6; hr <= 22; hr++) {
+    h += `<div class="cal-hr-lbl">${fmtT(hr + ':00')}</div>`;
+
+    // 7 slots for the 7 days of this hour
+    dates.forEach(d => {
+      const ds = d.toISOString().slice(0, 10);
+      const dayScheds = scheds.filter(s => s.date === ds);
+      const evts = dayScheds.filter(s => s.time && parseInt(s.time.split(':')[0]) === hr);
+      
+      const dayActs = acts.filter(a => a.date === ds && a.time && parseInt(a.time.split(':')[0]) === hr);
+
+      h += `<div class="cal-hr-slot">`;
+      h += evts.map(e => `<span class="cal-pill" title="${esc(e.title)}">${esc(e.title)}</span>`).join('');
+      h += dayActs.map(a => `<span class="cal-pill" style="background:var(--green);color:white" title="${a.duration} min">${actIcon(a.type)}</span>`).join('');
+      h += `</div>`;
+    });
+  }
+
+  h += '</div>';
+  return h;
 }
 
 function weekStart(d){ const dt=new Date(d); dt.setDate(dt.getDate()-dt.getDay()); return dt; }
@@ -481,7 +739,7 @@ async function doConfirm() {
 }
 
 function doPreview() {
-  const m={LOG_ACTIVITY:'activities',CREATE_TASK:'tasks',ADD_SCHEDULE:'schedules',LOG_JOURNAL:'journal',LOG_MEDAL:'medals'};
+  const m={LOG_ACTIVITY:'activities',CREATE_TODO:'todos',ADD_SCHEDULE:'schedules',LOG_JOURNAL:'journal',LOG_MEDAL:'medals',CREATE_MILESTONE:'milestones'};
   const sec=m[pendIntent]||'dashboard';
   document.getElementById('chat-panel').classList.add('hidden');
   document.getElementById('chat-icon').textContent='💬';
@@ -525,3 +783,52 @@ async function sendVoice(blob) {
     if(data.requiresConfirmation&&data.intent&&data.payload){ pendIntent=data.intent; pendPayload=data.payload; addConfirm(); }
   }catch(e){ rmTyping(tid); addAI('⚠️ Voice processing failed.'); }
 }
+
+// ─ News Briefings ────────────────────────────────────────────
+
+async function loadNews() {
+  const timeline = document.getElementById('news-timeline');
+  const empty    = document.getElementById('news-empty');
+  try {
+    const items = await api.get('/api/news');
+    if (!items.length) {
+      timeline.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    timeline.innerHTML = items.map(n => {
+      // Split the generated bullets (usually start with •)
+      const bullets = n.content.split('\n').filter(line => line.trim().length > 0);
+      return `
+      <div class="news-card glass">
+        <div class="news-date-badge">${fmtD(n.date)}</div>
+        <ul class="news-bullets">
+          ${bullets.map(b => `<li>${esc(b.replace(/^•\s*/, ''))}</li>`).join('')}
+        </ul>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    toast('Failed to load news briefings', 'error');
+  }
+}
+
+async function regenerateNews() {
+  const btn = document.getElementById('btn-regenerate-news');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '🔄 Generating...';
+  try {
+    await api.post('/api/news/regenerate');
+    toast('Briefing regenerated ✓');
+    loadNews();
+  } catch (err) {
+    toast('Regeneration failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+document.getElementById('btn-regenerate-news').addEventListener('click', regenerateNews);
+

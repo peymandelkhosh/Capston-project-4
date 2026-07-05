@@ -8,6 +8,7 @@ require('dotenv').config();
 
 const express = require('express');
 const path    = require('path');
+const os      = require('os');
 const { initDb } = require('./db');
 
 const app = express();
@@ -26,12 +27,15 @@ async function start() {
   await initDb();
 
   // 3. Mount routes
-  app.use('/api/activities', require('./routes/activities'));
-  app.use('/api/tasks',      require('./routes/tasks'));
-  app.use('/api/schedules',  require('./routes/schedules'));
-  app.use('/api/journal',    require('./routes/journal'));
-  app.use('/api/medals',     require('./routes/medals'));
-  app.use('/api/chat',       require('./routes/chat'));
+  app.use('/api/activities',  require('./routes/activities'));
+  app.use('/api/todos',       require('./routes/todos'));
+  app.use('/api/tasks',       require('./routes/tasks'));
+  app.use('/api/schedules',   require('./routes/schedules'));
+  app.use('/api/journal',     require('./routes/journal'));
+  app.use('/api/medals',      require('./routes/medals'));
+  app.use('/api/milestones',  require('./routes/milestones'));
+  app.use('/api/news',        require('./routes/news'));
+  app.use('/api/chat',        require('./routes/chat'));
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok', app: 'SyncRoutine', time: new Date().toISOString() }));
 
@@ -42,6 +46,20 @@ async function start() {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
     console.log(`\n🚀 SyncRoutine is running → http://localhost:${PORT}`);
+
+    // Find and display the local Wi-Fi IPv4 address
+    const nets = os.networkInterfaces();
+    let wifiIp = null;
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name]) {
+        if (net.family === 'IPv4' && !net.internal) {
+          wifiIp = net.address;
+        }
+      }
+    }
+    if (wifiIp) {
+      console.log(`📱 iPad/Mobile Access → http://${wifiIp}:${PORT}`);
+    }
     console.log('   Press Ctrl+C to stop\n');
   });
 

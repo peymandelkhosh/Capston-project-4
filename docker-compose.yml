@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  syncroutine:
+    build: .
+    container_name: syncroutine
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+    env_file:
+      - .env
+    volumes:
+      - ./syncroutine.db:/usr/src/app/syncroutine.db
+    restart: unless-stopped
